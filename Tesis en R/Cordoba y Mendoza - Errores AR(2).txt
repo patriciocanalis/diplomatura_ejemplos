@@ -1,0 +1,252 @@
+#Limpiar memoria y cargar base
+
+rm (list=ls())
+setwd("C:/Users/equipo/Desktop/Tesis")
+data<-read.csv("data.csv",header=TRUE)
+
+
+#Invocar paquetes
+
+library("systemfit")
+library("portes")
+library("MVN")
+
+
+#PASO 1
+
+#Estimar modelos con variables instrumentales
+
+cordoba<-dr_c~-1+t+dr_c_1+pe_c+pg_c+y+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq
+mendoza<-dr_m~-1+t+dr_m_1+pe_m+pg_m+y+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq
+
+inst_c <-~t+pe_c+pg_c+y+te_1+tesq_1+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq
+fit2sls_c<-systemfit(cordoba,"2SLS",inst=inst_c,data=data)
+u_circ_c<-residuals(fit2sls_c)
+
+inst_m <-~t+pe_m+pg_m+y+te_1+tesq_1+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq
+fit2sls_m<-systemfit(mendoza,"2SLS",inst=inst_m,data=data)
+u_circ_m<-residuals(fit2sls_m)
+
+
+#Obtener estimación de la matriz de varianzas y covarianzas con errores AR(1)
+
+U_circ<-cbind(u_circ_c,u_circ_m)
+cnames<-c("u_circ_c","u_circ_m")
+colnames(U_circ)<-cnames
+
+U_circ_2<-U_circ[1:72,]
+U_circ<-U_circ[3:74,]
+U_circ<-as.matrix(U_circ)
+U_circ_2<-as.matrix(U_circ_2)
+
+R_circ<-solve((t(U_circ_2))%*%U_circ_2)%*%(t(U_circ_2))%*%U_circ
+
+E_circ<-U_circ-U_circ_2%*%R_circ
+
+SIGMA_circ<-((t(E_circ))%*%(E_circ))/72
+
+
+#PASO 2
+
+#Aplicar mínimos cuadrados generalizados factibles con la matriz estimada
+
+Z_c<-cbind(data[,"t"],data[,"dr_c_1"],data[,"pe_c"],data[,"pg_c"],data[,"y"],data[,"ene"],data[,"feb"],data[,"mar"],data[,"abr"],data[,"may"],data[,"jun"],data [,"jul"],data[,"ago"],data[,"sep"],data[,"oct"],data[,"nov"],data[,"te"],data[,"tesq"])
+cnames_c<-c("t","dr_c_1","pe_c","pg_c","y","ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","te","tesq")
+colnames(Z_c)<-cnames_c
+Z_c_2<-Z_c[1:72,]
+Z_c<-Z_c[3:74,]
+
+Z_m<-cbind(data[,"t"],data[,"dr_m_1"],data[,"pe_m"],data[,"pg_m"],data[,"y"],data[,"ene"],data[,"feb"],data[,"mar"],data[,"abr"],data[,"may"],data[,"jun"],data [,"jul"],data[,"ago"],data[,"sep"],data[,"oct"],data[,"nov"],data[,"te"],data[,"tesq"])
+cnames_m<-c("t","dr_m_1","pe_m","pg_d","y","ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","te","tesq")
+colnames(Z_m)<-cnames_m
+Z_m_2<-Z_m[1:72,]
+Z_m<-Z_m[3:74,]
+
+ceros_c<-matrix(0, 72, 18)
+ceros_m<-matrix(0, 72, 18)
+
+Z_c_0<-rbind(Z_c,ceros_c)
+Z_m_0<-rbind(ceros_m,Z_m)
+
+Z_c_2_0<-rbind(Z_c_2,ceros_c)
+Z_m_2_0<-rbind(ceros_m,Z_m_2)
+
+Z<-cbind(Z_c_0,Z_m_0)
+Z_2<-cbind(Z_c_2_0,Z_m_2_0)
+I_T<-diag(1,72)
+I_M<-diag(1,2)
+
+H<-cbind((Z-((t(R_circ))%x%I_T)%*%Z_2),(I_M%x%U_circ_2))
+
+Y_c<-data[,"dr_c"]
+Y_c_2<-Y_c[1:72]
+Y_c<-Y_c[3:74]
+
+Y_m<-data[,"dr_m"]
+Y_m_2<-Y_m[1:72]
+Y_m<-Y_m[3:74]
+
+Y<-matrix(c(Y_c,Y_m),144,1)
+Y_2<-matrix(c(Y_c_2,Y_m_2),144,1)
+
+tita_sombrero_asterisco<-solve((t(H))%*%((solve(SIGMA_circ))%x%I_T)%*%H)%*%(t(H))%*%((solve(SIGMA_circ))%x%I_T)%*%(Y-(t(R_circ)%x%I_T)%*%Y_2)
+
+r1<-R_circ[,1]
+r2<-R_circ[,2]
+
+r_circ<-matrix(c(r1,r2),4,1)
+cerovector<-matrix(0,36,1)
+
+vector<-matrix(c(cerovector,r_circ),40,1)
+
+tita_sombrero<-tita_sombrero_asterisco+vector
+
+
+#Iterar el proceso
+
+R_circ_iter<-matrix(c(tita_sombrero[37:38,1],tita_sombrero[39:40,1]),2,2)
+E_circ<-U_circ-U_circ_2%*%R_circ_iter
+SIGMA_circ_iter<-((t(E_circ))%*%(E_circ))/72
+H_iter<-cbind((Z-((t(R_circ_iter))%x%I_T)%*%Z_2),(I_M%x%U_circ_2))
+tita_sombrero_asterisco_iter<-solve((t(H_iter))%*%((solve(SIGMA_circ_iter))%x%I_T)%*%H_iter)%*%(t(H_iter))%*%((solve(SIGMA_circ_iter))%x%I_T)%*%(Y-(t(R_circ_iter)%x%I_T)%*%Y_2)
+r1_iter<-R_circ_iter[,1]
+r2_iter<-R_circ_iter[,2]
+r_circ_iter<-matrix(c(r1,r2),4,1)
+cerovector_iter<-matrix(0,36,1)
+vector_iter<-matrix(c(cerovector_iter,r_circ_iter),40,1)
+tita_sombrero_iter0<-tita_sombrero_asterisco_iter+vector_iter
+
+dif=1
+nroiter=1
+while (dif>0.000001)
+{
+R_circ_iter<-matrix(c(tita_sombrero_iter0[37:38,1],tita_sombrero_iter0[39:40,1]),2,2)
+E_circ<-U_circ-U_circ_2%*%R_circ_iter
+SIGMA_circ_iter<-((t(E_circ))%*%(E_circ))/72
+H_iter<-cbind((Z-((t(R_circ_iter))%x%I_T)%*%Z_2),(I_M%x%U_circ_2))
+tita_sombrero_asterisco_iter<-solve((t(H_iter))%*%((solve(SIGMA_circ_iter))%x%I_T)%*%H_iter)%*%(t(H_iter))%*%((solve(SIGMA_circ_iter))%x%I_T)%*%(Y-(t(R_circ_iter)%x%I_T)%*%Y_2)
+r1_iter<-R_circ_iter[,1]
+r2_iter<-R_circ_iter[,2]
+r_circ_iter<-matrix(c(r1,r2),4,1)
+cerovector_iter<-matrix(0,36,1)
+vector_iter<-matrix(c(cerovector_iter,r_circ_iter),40,1)
+tita_sombrero_iter1<-tita_sombrero_asterisco_iter+vector_iter
+dif<-min(abs(tita_sombrero_iter1[1:36]-tita_sombrero_iter0[1:36]))
+tita_sombrero_iter0<-tita_sombrero_iter1
+nroiter<-cbind(nroiter,1)
+nroiter<-sum(nroiter)
+}
+
+nroiter
+
+tita_sombrero_iter<-tita_sombrero_iter0
+
+
+#Elaborar Tabla con coeficientes estimados
+
+S<-solve((t(H_iter))%*%((solve(SIGMA_circ_iter))%x%I_T)%*%H_iter)
+
+v1<-c(S[1,1],S[2,2],S[3,3],S[4,4],S[5,5],S[6,6],S[7,7],S[8,8],S[9,9],S[10,10],S[11,11],S[12,12],S[13,13],S[14,14],S[15,15],S[16,16],S[17,17],S[18,18],S[19,19],S[20,20],S[21,21],S[22,22],S[23,23],S[24,24],S[25,25],S[26,26],S[27,27],S[28,28],S[29,29],S[30,30],S[31,31],S[32,32],S[33,33],S[34,34],S[35,35],S[36,36])
+v3<-matrix(0,4,1)
+VV<-matrix(c(v1,v3),40,1)
+SS<-sqrt(VV)
+t<-tita_sombrero_iter/SS
+
+Tabla<-matrix(c(round(tita_sombrero_iter,4),round(SS,4),round(t,4)),40,3)
+
+rnames<-c(cnames_c,cnames_m,v3)
+rownames(Tabla)<-rnames
+cnames<-c("Estimate","Std. Error","t value")
+colnames(Tabla)<-cnames
+
+Tabla
+
+write.csv(Tabla,"salida_c_m_ar2.csv")
+
+
+#Obtener residuos
+
+y_aj_c<-Z_c%*%tita_sombrero[1:18]
+y_aj_m<-Z_m%*%tita_sombrero[19:36]
+
+Error_c<-Y_c-y_aj_c
+Error_m<-Y_m-y_aj_m
+
+Residuos<-matrix(c(Error_c,Error_m),72,2)
+
+write.csv(Residuos,"residuos_c_m_ar2.csv")
+
+
+#Pruebas a las ecuaciones estimadas por variables instrumentales
+
+#Heterocedasticidad: Test de Breusch-Pagan
+
+vble_endog_c<-lm(dr_c_1~t+pe_c+pg_c+y+te_1+tesq_1+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq,data=data)
+vble_endog_c_estimada<-fitted.values(vble_endog_c)
+data_c<-cbind(data[,"dr_c"],data[,"t"],vble_endog_c_estimada,data[,"pe_c"],data[,"pg_c"],data[,"y"],data[,"ene"],data[,"feb"],data[,"mar"],data[,"abr"],data[,"may"],data[,"jun"],data[,"jul"],data[,"ago"],data[,"sep"],data[,"oct"],data[,"nov"],data[,"te"],data[,"tesq"])
+cnames1_c<-c("dr_c","t","vble_endog_c_estimada","pe_c","pg_c","y","ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","te","tesq")
+colnames(data_c)<-cnames1_c
+data_c<-as.data.frame(data_c)
+bp_c<-bptest(dr_c~-1+t+vble_endog_c_estimada+pe_c+pg_c+y+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq,data=data_c)
+bp_c$p.value
+
+vble_endog_m<-lm(dr_m_1~t+pe_m+pg_m+y+te_1+tesq_1+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq,data=data)
+vble_endog_m_estimada<-fitted.values(vble_endog_m)
+data_m<-cbind(data[,"dr_m"],data[,"t"],vble_endog_m_estimada,data[,"pe_m"],data[,"pg_m"],data[,"y"],data[,"ene"],data[,"feb"],data[,"mar"],data[,"abr"],data[,"may"],data[,"jun"],data[,"jul"],data[,"ago"],data[,"sep"],data[,"oct"],data[,"nov"],data[,"te"],data[,"tesq"])
+cnames1_m<-c("dr_m","t","vble_endog_m_estimada","pe_m","pg_m","y","ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","te","tesq")
+colnames(data_m)<-cnames1_m
+data_m<-as.data.frame(data_m)
+bp_m<-bptest(dr_m~-1+t+vble_endog_m_estimada+pe_m+pg_m+y+ene+feb+mar+abr+may+jun+jul+ago+sep+oct+nov+te+tesq,data=data_m)
+bp_m$p.value
+
+#Autocorrelación: Test de Ljung-Box
+
+LB<- function(n) {
+LB1<-Box.test(n, lag = 1, type = "Ljung-Box", fitdf = 0)
+LB2<-Box.test(n, lag = 2, type = "Ljung-Box", fitdf = 0)
+LB3<-Box.test(n, lag = 3, type = "Ljung-Box", fitdf = 0)
+LB4<-Box.test(n, lag = 4, type = "Ljung-Box", fitdf = 0)
+LB5<-Box.test(n, lag = 5, type = "Ljung-Box", fitdf = 0)
+LB6<-Box.test(n, lag = 6, type = "Ljung-Box", fitdf = 0)
+LB7<-Box.test(n, lag = 7, type = "Ljung-Box", fitdf = 0)
+LB8<-Box.test(n, lag = 8, type = "Ljung-Box", fitdf = 0)
+LB9<-Box.test(n, lag = 9, type = "Ljung-Box", fitdf = 0)
+LB10<-Box.test(n, lag = 10, type = "Ljung-Box", fitdf = 0)
+LB11<-Box.test(n, lag = 11, type = "Ljung-Box", fitdf = 0)
+LB12<-Box.test(n, lag = 12, type = "Ljung-Box", fitdf = 0)   
+LB<-c(LB1$p.value,LB2$p.value,LB3$p.value,LB4$p.value,LB5$p.value,LB6$p.value,LB7$p.value,LB8$p.value,LB9$p.value,LB10$p.value,LB11$p.value,LB12$p.value)
+LB<-matrix(LB,12,1)
+LB_names<-c("1","2","3","4","5","6","7","8","9","10","11","12")
+rownames(LB)<-LB_names
+return(LB)
+}
+
+LB(u_circ_c)
+
+LB(u_circ_m)
+
+#Normalidad: Test de Shapiro-Wilk
+
+shapiro.test(u_circ_c[,1])$p.value
+
+shapiro.test(u_circ_m[,1])$p.value
+
+
+#Obtener correlación entre residuos tras estimación por variables instrumentales
+
+(correlacion<-round(cor(U_circ), 4))
+
+
+#Pruebas al sistema
+
+#Autocorrelación: Varios tests
+
+LjungBox(Residuos,lags=seq(1,12,1),order=0,season=1,squared.residuals=FALSE)
+Hosking(Residuos, lags=seq(1,12,1), order=0, season=1, squared.residuals=FALSE)
+LiMcLeod(Residuos, lags=seq(1,12,1), order=0, season=1, squared.residuals=FALSE)
+MahdiMcLeod(Residuos, lags=seq(1,12,1), order=0, season=1, squared.residuals=FALSE)
+
+#Normalidad multivariada
+
+mvn(Residuos)
+result <- mvn(data = Residuos, univariatePlot = "histogram")
